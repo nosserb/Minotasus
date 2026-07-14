@@ -1,0 +1,10 @@
+# Donne au groupe "plugdev" le droit d'écrire le niveau du rétroéclairage
+# clavier, pour piloter kbdlight sans sudo.
+#
+# Installation :
+#   sudo cp udev/99-asus-kbd-backlight.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=leds
+#
+# (Assure-toi d'être dans le groupe plugdev : `id` doit le lister.)
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="asus::kbd_backlight", RUN+="/bin/chgrp plugdev /sys/class/leds/asus::kbd_backlight/brightness", RUN+="/bin/chmod g+w /sys/class/leds/asus::kbd_backlight/brightness"
