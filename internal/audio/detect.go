@@ -4,10 +4,8 @@ package audio
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -28,60 +26,30 @@ func DefaultSink() (string, error) {
 	return strings.TrimSpace(m[1]), nil
 }
 
-// pwNode est la vue minimale d'un objet PipeWire renvoyé par `pw-dump`.
-type pwNode struct {
-	ID   int    `json:"id"`
-	Type string `json:"type"`
-	Info struct {
-		State string                     `json:"state"`
-		Props map[string]json.RawMessage `json:"props"`
-	} `json:"info"`
-}
-
-func (n pwNode) prop(key string) string {
-	raw, ok := n.Info.Props[key]
-	if !ok {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	return ""
-}
-
-// AppStream cherche le flux de lecture d'une application (ex. "spotify") et
-// renvoie l'identifiant de nœud à capter. La comparaison est insensible à la
-// casse sur application.name et node.name. Un flux « running » est préféré.
-func AppStream(match string) (target string, ok bool) {
-	out, err := pwCmd(context.Background(), "pw-dump").Output()
+// AppPorts renvoie les ports de sortie audio d'une application (ex. "spotify"),
+// sous la forme "node:port" (p. ex. "spotify:output_FL"). Ces ports serviront à
+// relier directement le flux de l'app à notre capture. La comparaison sur le
+// nom de nœud est insensible à la casse.
+func AppPorts(match string) (ports []string, ok bool) {
+	out, err := pwCmd(context.Background(), "pw-link", "-o").Output()
 	if err != nil {
-		return "", false
-	}
-	var nodes []pwNode
-	if json.Unmarshal(out, &nodes) != nil {
-		return "", false
+		return nil, false
 	}
 	want := strings.ToLower(match)
-	best := -1
-	running := false
-	for _, n := range nodes {
-		if n.prop("media.class") != "Stream/Output/Audio" {
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		// Format "node:port" ; on ne garde que les ports audio (output_*).
+		i := strings.LastIndex(line, ":")
+		if i < 0 {
 			continue
 		}
-		app := strings.ToLower(n.prop("application.name"))
-		name := strings.ToLower(n.prop("node.name"))
-		if !strings.Contains(app, want) && !strings.Contains(name, want) {
+		node, port := line[:i], line[i+1:]
+		if !strings.HasPrefix(port, "output_") {
 			continue
 		}
-		// Garde le premier trouvé, mais un flux actif l'emporte.
-		if best == -1 || (!running && n.Info.State == "running") {
-			best = n.ID
-			running = n.Info.State == "running"
+		if strings.Contains(strings.ToLower(node), want) {
+			ports = append(ports, line)
 		}
 	}
-	if best == -1 {
-		return "", false
-	}
-	return strconv.Itoa(best), true
+	return ports, len(ports) > 0
 }

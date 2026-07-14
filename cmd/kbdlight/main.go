@@ -208,25 +208,28 @@ func run(c *backlight.Controller, max int, period time.Duration, pulses int) err
 // flux d'une application (-app, ex. Spotify), avec repli sur la sortie complète
 // si l'application n'est pas trouvée.
 func resolveTarget(app, sink string) (opts audio.Options, desc string, err error) {
-	switch {
-	case sink != "":
-		return audio.Options{Target: sink, CaptureSink: true}, "sortie " + sink, nil
-	case app != "":
-		if id, ok := audio.AppStream(app); ok {
-			return audio.Options{Target: id}, "application « " + app + " »", nil
+	// Sortie précise forcée.
+	if sink != "" {
+		return audio.Options{Sink: sink}, "sortie " + sink, nil
+	}
+	// Application ciblée (ex. Spotify) : on relie ses ports de sortie.
+	if app != "" {
+		if ports, ok := audio.AppPorts(app); ok {
+			return audio.Options{AppPorts: ports}, "application « " + app + " »", nil
 		}
-		s, e := audio.DefaultSink()
-		if e != nil {
+	}
+	// Repli : toute la sortie par défaut.
+	s, e := audio.DefaultSink()
+	if e != nil {
+		if app != "" {
 			return audio.Options{}, "", fmt.Errorf("%s introuvable et sortie par défaut illisible : %w", app, e)
 		}
-		return audio.Options{Target: s, CaptureSink: true}, app + " introuvable → toute la sortie", nil
-	default:
-		s, e := audio.DefaultSink()
-		if e != nil {
-			return audio.Options{}, "", e
-		}
-		return audio.Options{Target: s, CaptureSink: true}, "sortie par défaut", nil
+		return audio.Options{}, "", e
 	}
+	if app != "" {
+		return audio.Options{Sink: s}, app + " introuvable → toute la sortie", nil
+	}
+	return audio.Options{Sink: s}, "sortie par défaut", nil
 }
 
 // runMusic capte le son du PC et fait pulser le rétroéclairage sur le rythme.
