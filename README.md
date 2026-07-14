@@ -2,7 +2,8 @@
 
 Petit programme en **Go** pour allumer et régler le **rétroéclairage du clavier**
 d'un portable **ASUS Vivobook** sous Linux. Tu le lances, tu appuies sur une
-touche, la lumière du clavier s'allume.
+touche, la lumière du clavier s'allume — et un **mode musique** la fait pulser au
+rythme du son joué sur le PC (voir plus bas).
 
 ## Comment ça marche
 
@@ -77,6 +78,42 @@ Touches dans le programme :
 | `0`–`3`     | règle directement un cran matériel plein|
 | `q`         | quitte                                  |
 
+## Mode musique — la lumière pulse au rythme 🎵
+
+```bash
+sudo ./kbdlight -music
+```
+
+Le clavier s'allume et pulse en suivant le son joué sur le PC. `q` (ou Ctrl-C)
+pour quitter. Un vumètre affiche le niveau capté en temps réel.
+
+### Comment ça marche
+
+Sous **PipeWire**, le programme capte le *monitor* de la sortie audio par défaut
+(ce que jouent les haut-parleurs) via `pw-record -P stream.capture.sink=true`,
+puis analyse le flux :
+
+1. **passe-bas ~200 Hz** — on isole les basses (grosse caisse, basse), là où
+   sont les battements ;
+2. **RMS** — l'énergie instantanée du bloc ;
+3. **AGC** (normalisation adaptative) — musique douce ou forte donnent la même
+   dynamique ;
+4. **enveloppe attaque rapide / relâche lente** — la lumière saute sur le beat
+   puis redescend en douceur.
+
+Le niveau `[0,1]` obtenu pilote directement le PWM du clavier (luminosité
+continue grâce au clignotement, cf. plus haut).
+
+### Options
+
+```bash
+sudo ./kbdlight -music -gain 1.5     # plus sensible
+sudo ./kbdlight -music -sink NOM     # écouter une autre sortie (node.name)
+```
+
+Liste les sorties avec `wpctl status` (section *Sinks*). Prérequis : **PipeWire**
+avec `pw-record` et `wpctl` (paquets `pipewire-utils` / `wireplumber`).
+
 ## Droits d'écriture
 
 Le fichier `brightness` appartient à `root`. Deux options :
@@ -109,5 +146,6 @@ go vet ./...
 cmd/kbdlight/         programme interactif (terminal)
 internal/backlight/   package de lecture/écriture du LED sysfs
 internal/effect/      PWM logiciel (niveaux intermédiaires par clignotement)
+internal/audio/       capture du son (PipeWire) + analyse rythmique
 udev/                 règle udev pour l'usage sans sudo
 ```
