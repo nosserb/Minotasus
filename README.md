@@ -137,6 +137,42 @@ Liste les applications qui jouent avec `wpctl status` (section *Streams*) et les
 sorties avec la section *Sinks*. Prérequis : **PipeWire** avec `pw-record`,
 `pw-dump` et `wpctl` (paquets `pipewire-utils` / `wireplumber`).
 
+## Mode match de foot ⚽
+
+Suit un match en direct : le clavier « respire » comme un **battement de cœur**
+qui s'accélère avec la **tension** (score serré + fin de match), et **explose**
+sur chaque but de ton équipe.
+
+```bash
+sudo ./kbdlight -match                 # suit la France par défaut
+sudo ./kbdlight -match -team Spain      # une autre équipe
+sudo ./kbdlight -match -demo            # démo des animations, sans match réel
+```
+
+Touches pendant le match :
+
+| Touche    | Effet                                             |
+|-----------|---------------------------------------------------|
+| `g` / esp.| déclenche un but **manuellement** (réaction immédiate devant la télé) |
+| `+` / `-` | ajuste la tension à la main                       |
+| `q`       | quitte                                            |
+
+### Comment ça marche
+
+Les scores en direct viennent de l'**API publique gratuite
+[TheSportsDB](https://www.thesportsdb.com/)** (aucune inscription). Le programme
+retrouve le match de l'équipe (`-team`), interroge le score toutes les
+`-poll` secondes (12 s par défaut), et en déduit :
+
+- **un but** quand le score augmente → animation d'explosion (stroboscope puis
+  pulsations triomphales) ;
+- **la tension** (0–100 %) selon l'écart au score et la minute → règle le
+  rythme et l'ampleur du battement de cœur.
+
+L'API peut avoir quelques secondes de retard : la touche `g` permet de claquer
+le but pile au bon moment en le voyant à la télé. Tu peux aussi forcer un match
+précis avec `-event <idEvent>` (l'identifiant TheSportsDB).
+
 ## Droits d'écriture
 
 Le fichier `brightness` appartient à `root`. Deux options :
@@ -170,5 +206,7 @@ cmd/kbdlight/         programme interactif (terminal)
 internal/backlight/   package de lecture/écriture du LED sysfs
 internal/effect/      PWM logiciel (niveaux intermédiaires par clignotement)
 internal/audio/       capture du son (PipeWire) + analyse rythmique
+internal/match/       suivi de match en direct (TheSportsDB) + tension
+internal/show/        animations de match (battement de cœur, explosion de but)
 udev/                 règle udev pour l'usage sans sudo
 ```
