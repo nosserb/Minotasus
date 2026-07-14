@@ -118,6 +118,12 @@ Le flux capté est ensuite analysé :
 Le niveau `[0,1]` obtenu pilote directement le PWM du clavier (luminosité
 continue grâce au clignotement, cf. plus haut).
 
+Pour **ne pas surcharger le contrôleur du clavier** (chaque écriture passe par
+l'ACPI/WMI, coûteux), le mode musique limite au maximum les écritures : niveau
+identique ignoré (dédup), zone morte autour des crans entiers, et une seule
+impulsion PWM par cycle. Résultat : quasiment aucune écriture quand le son est
+calme, et ~4× moins qu'avant dans les passages les plus chargés.
+
 ### Options
 
 ```bash
