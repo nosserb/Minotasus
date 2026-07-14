@@ -42,7 +42,7 @@ func TestLoudBassRaisesLevel(t *testing.T) {
 
 func TestDropToSilenceDecays(t *testing.T) {
 	a := NewAnalyzer(Params{Rate: 22050})
-	feed(a, tone(22050, 512, 60, 0.8), 30) // musique
+	feed(a, tone(22050, 512, 60, 0.8), 30)   // musique
 	lvl := feed(a, make([]float64, 512), 40) // puis silence
 	if lvl > 0.1 {
 		t.Fatalf("après coupure la lumière devrait retomber, got %.3f", lvl)

@@ -79,7 +79,7 @@ func (p *PWM) loop() {
 		level := p.level
 		p.mu.Unlock()
 
-		lo := int(level)         // cran bas
+		lo := int(level)            // cran bas
 		frac := level - float64(lo) // part passée sur le cran haut
 
 		if frac <= 0.001 {
