@@ -90,6 +90,12 @@ vumètre affiche le niveau capté en temps réel.
 
 Si Spotify n'est pas lancé, le programme se rabat sur **toute la sortie audio**.
 
+> **Sous `sudo`** : PipeWire tourne dans ta session utilisateur, pas en root.
+> kbdlight le gère en relançant les outils audio (`pw-record`, `pw-dump`,
+> `wpctl`) en tant que `$SUDO_USER` avec le bon `XDG_RUNTIME_DIR`. Rien à faire
+> de ton côté. (Avec la règle udev installée, tu peux aussi lancer le mode
+> musique **sans** sudo, ce qui évite complètement ce détour.)
+
 ### Comment ça marche
 
 Sous **PipeWire**, le programme repère le nœud de lecture de Spotify avec
