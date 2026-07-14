@@ -84,14 +84,21 @@ Touches dans le programme :
 sudo ./kbdlight -music
 ```
 
-Le clavier s'allume et pulse en suivant le son joué sur le PC. `q` (ou Ctrl-C)
-pour quitter. Un vumètre affiche le niveau capté en temps réel.
+Par défaut, le clavier suit **automatiquement le flux Spotify** : lance Spotify,
+mets un morceau, et la lumière pulse au rythme. `q` (ou Ctrl-C) pour quitter. Un
+vumètre affiche le niveau capté en temps réel.
+
+Si Spotify n'est pas lancé, le programme se rabat sur **toute la sortie audio**.
 
 ### Comment ça marche
 
-Sous **PipeWire**, le programme capte le *monitor* de la sortie audio par défaut
-(ce que jouent les haut-parleurs) via `pw-record -P stream.capture.sink=true`,
-puis analyse le flux :
+Sous **PipeWire**, le programme repère le nœud de lecture de Spotify avec
+`pw-dump` (propriété `application.name`) et **branche sa capture directement sur
+ce flux** — la lumière ne réagit donc qu'à Spotify, pas aux autres sons du
+système. En repli (toute la sortie), il capte le *monitor* du sink par défaut
+via `pw-record -P stream.capture.sink=true`.
+
+Le flux capté est ensuite analysé :
 
 1. **passe-bas ~200 Hz** — on isole les basses (grosse caisse, basse), là où
    sont les battements ;
@@ -108,11 +115,14 @@ continue grâce au clignotement, cf. plus haut).
 
 ```bash
 sudo ./kbdlight -music -gain 1.5     # plus sensible
-sudo ./kbdlight -music -sink NOM     # écouter une autre sortie (node.name)
+sudo ./kbdlight -music -app vlc      # suivre une autre application
+sudo ./kbdlight -music -app ""       # toute la sortie (au lieu de Spotify)
+sudo ./kbdlight -music -sink NOM     # forcer une sortie précise (node.name)
 ```
 
-Liste les sorties avec `wpctl status` (section *Sinks*). Prérequis : **PipeWire**
-avec `pw-record` et `wpctl` (paquets `pipewire-utils` / `wireplumber`).
+Liste les applications qui jouent avec `wpctl status` (section *Streams*) et les
+sorties avec la section *Sinks*. Prérequis : **PipeWire** avec `pw-record`,
+`pw-dump` et `wpctl` (paquets `pipewire-utils` / `wireplumber`).
 
 ## Droits d'écriture
 
