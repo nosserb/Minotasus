@@ -34,6 +34,11 @@ import (
 // Avec max=3 et 4 subdivisions, on passe de 4 à 13 niveaux perçus.
 const subdivisions = 4
 
+// musicMaxPulses borne les impulsions PWM en mode musique (moins d'écritures).
+// Une seule impulsion suffit : sur de la musique en mouvement, le grain du PWM
+// est imperceptible, et on divise d'autant les sollicitations du contrôleur.
+const musicMaxPulses = 1
+
 func main() {
 	period := flag.Duration("period", 15*time.Millisecond, "durée d'un cycle PWM (plus court = moins de scintillement)")
 	pulses := flag.Int("pulses", 0, "impulsions par cycle (0 = auto selon la latence du clavier)")
@@ -251,6 +256,11 @@ func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int
 	}
 	defer stopAudio()
 
+	// En musique, l'image bouge trop vite pour qu'on perçoive le grain du PWM :
+	// on plafonne les impulsions pour limiter les écritures au contrôleur.
+	if pulses > musicMaxPulses {
+		pulses = musicMaxPulses
+	}
 	pwm := effect.New(c, period, pulses)
 
 	// Lecture clavier en mode brut, dans une goroutine, pour pouvoir quitter.

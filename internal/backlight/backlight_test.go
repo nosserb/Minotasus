@@ -41,6 +41,27 @@ func TestSetClamps(t *testing.T) {
 	}
 }
 
+func TestSetDeduplicates(t *testing.T) {
+	dir := fakeLED(t, "0", "3")
+	c := NewAt(dir)
+	if err := c.Set(2); err != nil {
+		t.Fatal(err)
+	}
+	// Rend le fichier non inscriptible : une écriture réelle échouerait.
+	bf := filepath.Join(dir, "brightness")
+	if err := os.Chmod(bf, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	// Même niveau → ignoré → pas d'erreur (aucune écriture tentée).
+	if err := c.Set(2); err != nil {
+		t.Errorf("Set(2) répété devrait être ignoré, got %v", err)
+	}
+	// Niveau différent → tentative d'écriture → doit échouer (lecture seule).
+	if err := c.Set(1); err == nil {
+		t.Errorf("Set(1) sur fichier lecture seule devrait échouer")
+	}
+}
+
 func TestAvailable(t *testing.T) {
 	if NewAt(fakeLED(t, "0", "3")).Available() != true {
 		t.Error("Available() = false, want true")

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // DefaultPath est l'emplacement du LED sur les portables ASUS.
@@ -20,6 +21,12 @@ const DefaultPath = "/sys/class/leds/asus::kbd_backlight"
 // Controller pilote un LED de rétroéclairage repéré par son dossier sysfs.
 type Controller struct {
 	dir string
+
+	mu       sync.Mutex
+	maxVal   int  // max_brightness mis en cache (invariant)
+	maxOK    bool // max_brightness déjà lu ?
+	last     int  // dernier niveau écrit (pour éviter les écritures redondantes)
+	haveLast bool
 }
 
 // New renvoie un Controller pour le chemin ASUS par défaut.
@@ -39,9 +46,25 @@ func (c *Controller) Available() bool {
 	return err == nil
 }
 
-// Max renvoie le niveau maximal accepté par le rétroéclairage.
+// Max renvoie le niveau maximal accepté par le rétroéclairage. La valeur est
+// invariante : on ne lit le fichier qu'une fois.
 func (c *Controller) Max() (int, error) {
-	return c.readInt("max_brightness")
+	c.mu.Lock()
+	if c.maxOK {
+		v := c.maxVal
+		c.mu.Unlock()
+		return v, nil
+	}
+	c.mu.Unlock()
+
+	v, err := c.readInt("max_brightness")
+	if err != nil {
+		return 0, err
+	}
+	c.mu.Lock()
+	c.maxVal, c.maxOK = v, true
+	c.mu.Unlock()
+	return v, nil
 }
 
 // Get renvoie le niveau courant.
@@ -49,7 +72,9 @@ func (c *Controller) Get() (int, error) {
 	return c.readInt("brightness")
 }
 
-// Set écrit un niveau, borné entre 0 et max_brightness.
+// Set écrit un niveau, borné entre 0 et max_brightness. Une écriture identique à
+// la précédente est ignorée : inutile de solliciter le contrôleur (ACPI/WMI)
+// pour rien, ce qui allège fortement la charge en mode musique.
 func (c *Controller) Set(level int) error {
 	max, err := c.Max()
 	if err != nil {
@@ -61,6 +86,14 @@ func (c *Controller) Set(level int) error {
 	if level > max {
 		level = max
 	}
+
+	c.mu.Lock()
+	if c.haveLast && c.last == level {
+		c.mu.Unlock()
+		return nil // rien à faire : déjà à ce niveau
+	}
+	c.mu.Unlock()
+
 	path := filepath.Join(c.dir, "brightness")
 	if err := os.WriteFile(path, []byte(strconv.Itoa(level)), 0o644); err != nil {
 		if os.IsPermission(err) {
@@ -68,6 +101,10 @@ func (c *Controller) Set(level int) error {
 		}
 		return err
 	}
+
+	c.mu.Lock()
+	c.last, c.haveLast = level, true
+	c.mu.Unlock()
 	return nil
 }
 

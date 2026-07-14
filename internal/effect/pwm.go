@@ -72,6 +72,10 @@ func (p *PWM) Stop() {
 	<-p.done
 }
 
+// deadband est la marge (en fraction de cran) autour d'un niveau entier dans
+// laquelle on ne clignote pas.
+const deadband = 0.08
+
 func (p *PWM) loop() {
 	defer close(p.done)
 	for {
@@ -82,7 +86,15 @@ func (p *PWM) loop() {
 		lo := int(level)            // cran bas
 		frac := level - float64(lo) // part passée sur le cran haut
 
-		if frac <= 0.001 {
+		// Zone morte autour des crans entiers : à moins de `deadband` d'un
+		// cran, on s'y colle sans clignoter. Couplé à la dédup des écritures,
+		// un niveau proche d'un cran ne génère alors plus aucune écriture —
+		// ce qui soulage énormément le contrôleur en mode musique.
+		if frac >= 1-deadband {
+			lo++
+			frac = 0
+		}
+		if frac <= deadband {
 			// Niveau entier : rien à clignoter, on écrit et on attend un cycle.
 			_ = p.set.Set(lo)
 			if p.sleep(p.period) {
