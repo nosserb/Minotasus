@@ -46,6 +46,11 @@ func main() {
 	app := flag.String("app", "spotify", "application à suivre en mode musique (vide = toute la sortie)")
 	sink := flag.String("sink", "", "node.name d'une sortie audio à écouter (force la capture de toute la sortie)")
 	gain := flag.Float64("gain", 1, "sensibilité du mode musique")
+	matchMode := flag.Bool("match", false, "suit un match de foot en direct (tension + explosion sur but)")
+	team := flag.String("team", "France", "équipe à suivre et à célébrer en mode match")
+	event := flag.String("event", "", "idEvent TheSportsDB (sinon déduit de -team)")
+	poll := flag.Duration("poll", 12*time.Second, "intervalle d'interrogation de l'API en mode match")
+	demo := flag.Bool("demo", false, "mode match : joue un scénario de démonstration sans API")
 	led := flag.String("led", backlight.DefaultPath, "dossier sysfs du LED de rétroéclairage")
 	flag.Parse()
 
@@ -81,9 +86,12 @@ func main() {
 	}
 
 	var runErr error
-	if *music {
+	switch {
+	case *matchMode:
+		runErr = runMatch(c, max, *period, n, *team, *event, *poll, *demo)
+	case *music:
 		runErr = runMusic(c, max, *period, n, *app, *sink, *gain)
-	} else {
+	default:
 		runErr = run(c, max, *period, n)
 	}
 	if runErr != nil {
