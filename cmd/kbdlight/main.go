@@ -38,7 +38,8 @@ func main() {
 	period := flag.Duration("period", 15*time.Millisecond, "durée d'un cycle PWM (plus court = moins de scintillement)")
 	pulses := flag.Int("pulses", 0, "impulsions par cycle (0 = auto selon la latence du clavier)")
 	music := flag.Bool("music", false, "fait pulser la lumière au rythme de la musique jouée sur le PC")
-	sink := flag.String("sink", "", "node.name de la sortie audio à écouter (défaut : sortie par défaut)")
+	app := flag.String("app", "spotify", "application à suivre en mode musique (vide = toute la sortie)")
+	sink := flag.String("sink", "", "node.name d'une sortie audio à écouter (force la capture de toute la sortie)")
 	gain := flag.Float64("gain", 1, "sensibilité du mode musique")
 	led := flag.String("led", backlight.DefaultPath, "dossier sysfs du LED de rétroéclairage")
 	flag.Parse()
@@ -76,7 +77,7 @@ func main() {
 
 	var runErr error
 	if *music {
-		runErr = runMusic(c, max, *period, n, *sink, *gain)
+		runErr = runMusic(c, max, *period, n, *app, *sink, *gain)
 	} else {
 		runErr = run(c, max, *period, n)
 	}
@@ -203,13 +204,44 @@ func run(c *backlight.Controller, max int, period time.Duration, pulses int) err
 	}
 }
 
+// resolveTarget choisit ce qu'on écoute : une sortie précise (-sink), sinon le
+// flux d'une application (-app, ex. Spotify), avec repli sur la sortie complète
+// si l'application n'est pas trouvée.
+func resolveTarget(app, sink string) (opts audio.Options, desc string, err error) {
+	switch {
+	case sink != "":
+		return audio.Options{Target: sink, CaptureSink: true}, "sortie " + sink, nil
+	case app != "":
+		if id, ok := audio.AppStream(app); ok {
+			return audio.Options{Target: id}, "application « " + app + " »", nil
+		}
+		s, e := audio.DefaultSink()
+		if e != nil {
+			return audio.Options{}, "", fmt.Errorf("%s introuvable et sortie par défaut illisible : %w", app, e)
+		}
+		return audio.Options{Target: s, CaptureSink: true}, app + " introuvable → toute la sortie", nil
+	default:
+		s, e := audio.DefaultSink()
+		if e != nil {
+			return audio.Options{}, "", e
+		}
+		return audio.Options{Target: s, CaptureSink: true}, "sortie par défaut", nil
+	}
+}
+
 // runMusic capte le son du PC et fait pulser le rétroéclairage sur le rythme.
 // La touche q (ou Ctrl-C) quitte.
-func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int, sink string, gain float64) error {
+func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int, app, sink string, gain float64) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mon := audio.NewMonitor(audio.Options{Sink: sink, Gain: gain})
+	opts, desc, err := resolveTarget(app, sink)
+	if err != nil {
+		return err
+	}
+	opts.Gain = gain
+
+	mon := audio.NewMonitor(opts)
 	levels, stopAudio, err := mon.Start(ctx)
 	if err != nil {
 		return fmt.Errorf("capture audio : %w", err)
@@ -253,7 +285,7 @@ func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
-	fmt.Print("Mode musique — la lumière suit le rythme. q pour quitter.\r\n")
+	fmt.Printf("Mode musique — source : %s. La lumière suit le rythme. q pour quitter.\r\n", desc)
 
 	for {
 		select {

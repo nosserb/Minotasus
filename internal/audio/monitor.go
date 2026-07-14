@@ -9,25 +9,26 @@ import (
 	"strconv"
 )
 
-// Monitor capte le son en sortie du PC via pw-record et émet, bloc après bloc,
-// un niveau [0,1] qui suit le rythme.
+// Monitor capte du son via pw-record et émet, bloc après bloc, un niveau [0,1]
+// qui suit le rythme.
 type Monitor struct {
-	sink  string // node.name à capter ; vide = sortie par défaut
-	rate  int    // Hz
-	block int    // échantillons par bloc d'analyse
-	gain  float64
+	target      string // node id / name / serial à capter
+	captureSink bool   // true pour capter le monitor d'un sink (toute la sortie)
+	rate        int    // Hz
+	block       int    // échantillons par bloc d'analyse
+	gain        float64
 }
 
 // Options configure le Monitor. Les zéros prennent des valeurs par défaut.
 type Options struct {
-	Sink  string  // node.name ; vide = auto-détection
-	Rate  int     // défaut 22050
-	Block int     // défaut 512 échantillons (~23 ms à 22050 Hz)
-	Gain  float64 // sensibilité ; défaut 1
+	Target      string  // node à capter (obligatoire)
+	CaptureSink bool    // capter le monitor du sink (sortie complète) ; false pour un flux d'app
+	Rate        int     // défaut 22050
+	Block       int     // défaut 512 échantillons (~23 ms à 22050 Hz)
+	Gain        float64 // sensibilité ; défaut 1
 }
 
-// NewMonitor prépare un Monitor. Si Sink est vide, la sortie par défaut est
-// détectée au démarrage.
+// NewMonitor prépare un Monitor à partir des options.
 func NewMonitor(o Options) *Monitor {
 	if o.Rate <= 0 {
 		o.Rate = 22050
@@ -38,31 +39,28 @@ func NewMonitor(o Options) *Monitor {
 	if o.Gain <= 0 {
 		o.Gain = 1
 	}
-	return &Monitor{sink: o.Sink, rate: o.Rate, block: o.Block, gain: o.Gain}
+	return &Monitor{target: o.Target, captureSink: o.CaptureSink, rate: o.Rate, block: o.Block, gain: o.Gain}
 }
 
 // Start lance la capture et renvoie un canal de niveaux [0,1]. Le canal se ferme
 // quand ctx est annulé ou que la capture s'arrête. La fonction renvoyée doit
 // être appelée pour libérer le processus pw-record.
 func (m *Monitor) Start(ctx context.Context) (<-chan float64, func(), error) {
-	sink := m.sink
-	if sink == "" {
-		var err error
-		if sink, err = DefaultSink(); err != nil {
-			return nil, nil, err
-		}
+	args := make([]string, 0, 12)
+	if m.captureSink {
+		// Capter ce que JOUE un sink (son monitor), pas le micro. Inutile — et
+		// contre-productif — pour un flux d'application ciblé directement.
+		args = append(args, "-P", "stream.capture.sink=true")
 	}
-
-	cmd := exec.CommandContext(ctx, "pw-record",
-		// Capture ce que JOUE le sink (son monitor), pas le micro.
-		"-P", "stream.capture.sink=true",
-		"--target", sink,
+	args = append(args,
+		"--target", m.target,
 		"--rate", strconv.Itoa(m.rate),
 		"--channels", "1",
 		"--format", "s16",
 		"--latency", "20ms",
 		"--raw", "-",
 	)
+	cmd := exec.CommandContext(ctx, "pw-record", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, err
