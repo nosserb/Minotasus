@@ -14,6 +14,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"minotasus/internal/audio"
 	"minotasus/internal/backlight"
 	"minotasus/internal/effect"
 )
@@ -35,9 +37,13 @@ const subdivisions = 4
 func main() {
 	period := flag.Duration("period", 15*time.Millisecond, "durée d'un cycle PWM (plus court = moins de scintillement)")
 	pulses := flag.Int("pulses", 0, "impulsions par cycle (0 = auto selon la latence du clavier)")
+	music := flag.Bool("music", false, "fait pulser la lumière au rythme de la musique jouée sur le PC")
+	sink := flag.String("sink", "", "node.name de la sortie audio à écouter (défaut : sortie par défaut)")
+	gain := flag.Float64("gain", 1, "sensibilité du mode musique")
+	led := flag.String("led", backlight.DefaultPath, "dossier sysfs du LED de rétroéclairage")
 	flag.Parse()
 
-	c := backlight.New()
+	c := backlight.NewAt(*led)
 
 	if !c.Available() {
 		fmt.Fprintln(os.Stderr, "Rétroéclairage introuvable en", backlight.DefaultPath)
@@ -68,8 +74,14 @@ func main() {
 		fmt.Printf("Latence d'écriture ~%s → %d impulsion(s)/cycle (règle avec -pulses).\n", lat.Round(time.Microsecond), n)
 	}
 
-	if err := run(c, max, *period, n); err != nil {
-		fmt.Fprintln(os.Stderr, "Erreur :", err)
+	var runErr error
+	if *music {
+		runErr = runMusic(c, max, *period, n, *sink, *gain)
+	} else {
+		runErr = run(c, max, *period, n)
+	}
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "Erreur :", runErr)
 		os.Exit(1)
 	}
 }
@@ -189,6 +201,86 @@ func run(c *backlight.Controller, max int, period time.Duration, pulses int) err
 		pwm.SetLevel(float64(fine) / subdivisions)
 		draw(fine, fineMax)
 	}
+}
+
+// runMusic capte le son du PC et fait pulser le rétroéclairage sur le rythme.
+// La touche q (ou Ctrl-C) quitte.
+func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int, sink string, gain float64) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mon := audio.NewMonitor(audio.Options{Sink: sink, Gain: gain})
+	levels, stopAudio, err := mon.Start(ctx)
+	if err != nil {
+		return fmt.Errorf("capture audio : %w", err)
+	}
+	defer stopAudio()
+
+	pwm := effect.New(c, period, pulses)
+
+	// Lecture clavier en mode brut, dans une goroutine, pour pouvoir quitter.
+	restore, err := rawMode()
+	if err == nil {
+		defer restore()
+		go func() {
+			buf := make([]byte, 4)
+			for {
+				n, e := os.Stdin.Read(buf)
+				if e != nil || n == 0 {
+					return
+				}
+				if b := buf[0]; b == 'q' || b == 'Q' || b == 3 {
+					cancel()
+					return
+				}
+			}
+		}()
+	}
+
+	var cleaned bool
+	cleanup := func() {
+		if cleaned {
+			return
+		}
+		cleaned = true
+		pwm.Stop()
+		if restore != nil {
+			restore()
+		}
+	}
+	defer cleanup()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+
+	fmt.Print("Mode musique — la lumière suit le rythme. q pour quitter.\r\n")
+
+	for {
+		select {
+		case <-sig:
+			cancel()
+		case <-ctx.Done():
+			cleanup()
+			fmt.Print("\r\n")
+			return nil
+		case lvl, ok := <-levels:
+			if !ok {
+				cleanup()
+				fmt.Print("\r\n")
+				return errors.New("flux audio interrompu (pw-record arrêté ?)")
+			}
+			pwm.SetLevel(lvl * float64(max))
+			drawVU(lvl)
+		}
+	}
+}
+
+// drawVU affiche un vumètre du niveau audio courant.
+func drawVU(level float64) {
+	const width = 24
+	on := int(level*float64(width) + 0.5)
+	bar := strings.Repeat("█", on) + strings.Repeat("·", width-on)
+	fmt.Printf("\r\033[K  ♪ [%s] %3.0f%% ", bar, level*100)
 }
 
 // draw réaffiche une jauge d'état sur la ligne courante.
