@@ -98,11 +98,12 @@ Si Spotify n'est pas lancé, le programme se rabat sur **toute la sortie audio**
 
 ### Comment ça marche
 
-Sous **PipeWire**, le programme repère le nœud de lecture de Spotify avec
-`pw-dump` (propriété `application.name`) et **branche sa capture directement sur
-ce flux** — la lumière ne réagit donc qu'à Spotify, pas aux autres sons du
-système. En repli (toute la sortie), il capte le *monitor* du sink par défaut
-via `pw-record -P stream.capture.sink=true`.
+Sous **PipeWire**, le programme repère les ports de sortie de Spotify
+(`pw-link -o`), lance une capture **sans auto-connexion** (`node.autoconnect=false`,
+sinon `pw-record` se relierait au **micro** !) puis relie lui-même les ports de
+Spotify à cette capture avec `pw-link`. La lumière ne réagit donc qu'à Spotify,
+jamais à l'entrée micro ni aux autres sons. En repli (toute la sortie), il capte
+le *monitor* du sink par défaut via `pw-record -P stream.capture.sink=true`.
 
 Le flux capté est ensuite analysé :
 
