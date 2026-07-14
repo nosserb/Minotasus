@@ -1,27 +1,41 @@
 // Commande kbdlight : petit programme interactif pour allumer et régler le
 // rétroéclairage du clavier d'un portable ASUS Vivobook.
 //
+// Le matériel n'a que quelques crans (0..3). Pour obtenir des niveaux
+// intermédiaires, le programme clignote très vite entre deux crans (PWM
+// logiciel, paquet internal/effect) : l'œil perçoit une luminosité moyenne.
+//
 // Lance-le puis appuie sur une touche :
 //
 //	espace   allume / éteint (bascule)
-//	+ / -    augmente / diminue le niveau
-//	0..3     règle directement le niveau
+//	+ / -    monte / descend d'un cran fin (niveaux intermédiaires)
+//	0..3     règle directement un cran matériel plein
 //	q        quitte
 package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"minotasus/internal/backlight"
+	"minotasus/internal/effect"
 )
 
+// subdivisions découpe chaque cran matériel en sous-niveaux via PWM.
+// Avec max=3 et 4 subdivisions, on passe de 4 à 13 niveaux perçus.
+const subdivisions = 4
+
 func main() {
+	period := flag.Duration("period", 15*time.Millisecond, "durée d'un cycle PWM (plus court = moins de scintillement)")
+	flag.Parse()
+
 	c := backlight.New()
 
 	if !c.Available() {
@@ -36,44 +50,65 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !c.Writable() {
-		fmt.Println("⚠  Écriture non autorisée : relance avec sudo, ou installe la règle udev (voir README).")
-		fmt.Println()
+	// Vérifie tout de suite qu'on peut écrire : sinon le PWM tournerait dans
+	// le vide sans jamais allumer le clavier.
+	if cur, _ := c.Get(); c.Set(cur) != nil {
+		fmt.Fprintln(os.Stderr, "Écriture refusée sur le rétroéclairage.")
+		fmt.Fprintln(os.Stderr, "Relance avec sudo, ou installe la règle udev (voir README).")
+		os.Exit(1)
 	}
 
-	if err := run(c, max); err != nil {
+	if err := run(c, max, *period); err != nil {
 		fmt.Fprintln(os.Stderr, "Erreur :", err)
 		os.Exit(1)
 	}
 }
 
-// run met le terminal en mode brut, affiche l'état et réagit aux touches
+// run met le terminal en mode brut, pilote le PWM et réagit aux touches
 // jusqu'à ce que l'utilisateur quitte.
-func run(c *backlight.Controller, max int) error {
+func run(c *backlight.Controller, max int, period time.Duration) error {
 	restore, err := rawMode()
 	if err != nil {
 		return fmt.Errorf("passage en mode brut : %w", err)
 	}
-	defer restore()
+
+	pwm := effect.New(c, period)
+
+	// Nettoyage commun (terminal + PWM), idempotent.
+	var cleaned bool
+	cleanup := func() {
+		if cleaned {
+			return
+		}
+		cleaned = true
+		pwm.Stop()
+		restore()
+	}
+	defer cleanup()
 
 	// Restaure le terminal même en cas de Ctrl-C brutal.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
-		restore()
+		cleanup()
 		fmt.Print("\r\n")
 		os.Exit(0)
 	}()
 
-	// Dernier niveau non nul, mémorisé pour la bascule espace.
-	last := max
+	fineMax := max * subdivisions
 
-	fmt.Print("Clavier lumineux — espace: on/off  +/-: niveau  0-3: direct  q: quitter\r\n")
-	if lvl, _ := c.Get(); lvl > 0 {
-		last = lvl
+	// Cran fin courant, déduit du niveau matériel de départ.
+	cur, _ := c.Get()
+	fine := cur * subdivisions
+	last := fineMax // dernier niveau non nul, pour la bascule espace
+	if fine > 0 {
+		last = fine
 	}
-	draw(c, max)
+	pwm.SetLevel(float64(fine) / subdivisions)
+
+	fmt.Print("Clavier lumineux — espace: on/off  +/-: niveau fin  0-3: cran plein  q: quitter\r\n")
+	draw(fine, fineMax)
 
 	buf := make([]byte, 8)
 	for {
@@ -81,57 +116,56 @@ func run(c *backlight.Controller, max int) error {
 		if err != nil || n == 0 {
 			return nil
 		}
-		cur, _ := c.Get()
-		target := cur
-		quit := false
 
 		switch buf[0] {
 		case 'q', 'Q', 3: // 3 = Ctrl-C
-			quit = true
-		case ' ': // bascule
-			if cur > 0 {
-				last = cur
-				target = 0
+			fmt.Print("\r\n")
+			return nil
+		case ' ': // bascule on/off
+			if fine > 0 {
+				last = fine
+				fine = 0
 			} else {
-				target = last
+				fine = last
 			}
 		case '+', '=':
-			target = cur + 1
+			fine++
 		case '-', '_':
-			target = cur - 1
+			fine--
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-			target = int(buf[0] - '0')
+			fine = int(buf[0]-'0') * subdivisions
 		default:
 			continue
 		}
 
-		if quit {
-			fmt.Print("\r\n")
-			return nil
+		fine = clamp(fine, 0, fineMax)
+		if fine > 0 {
+			last = fine
 		}
-
-		if err := c.Set(target); err != nil {
-			// Efface la ligne d'état et montre l'erreur sans casser l'affichage.
-			fmt.Print("\r\033[K")
-			return err
-		}
-		if target > 0 {
-			last = target
-		}
-		draw(c, max)
+		pwm.SetLevel(float64(fine) / subdivisions)
+		draw(fine, fineMax)
 	}
 }
 
 // draw réaffiche une jauge d'état sur la ligne courante.
-func draw(c *backlight.Controller, max int) {
-	lvl, _ := c.Get()
-	bar := strings.Repeat("█", lvl) + strings.Repeat("·", max-lvl)
+func draw(fine, fineMax int) {
+	bar := strings.Repeat("█", fine) + strings.Repeat("·", fineMax-fine)
 	state := "éteint"
-	if lvl > 0 {
+	if fine > 0 {
 		state = "allumé"
 	}
 	// \r + effacement de ligne, pas de \n pour rester sur place.
-	fmt.Printf("\r\033[K  [%s]  niveau %d/%d — %s ", bar, lvl, max, state)
+	fmt.Printf("\r\033[K  [%s]  %d/%d — %s ", bar, fine, fineMax, state)
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // rawMode configure le terminal pour lire les touches une par une, sans écho,

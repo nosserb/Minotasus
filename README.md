@@ -18,6 +18,24 @@ Le programme lit et écrit simplement ce fichier. Aucune dépendance externe :
 uniquement la bibliothèque standard Go (le mode « touche par touche » du
 terminal est géré via `stty`).
 
+### Plus de niveaux que le matériel (PWM logiciel)
+
+Le clavier n'a que 4 crans (0, 1, 2, 3). Pour obtenir des niveaux
+**intermédiaires**, le programme **clignote très vite entre deux crans** : par
+exemple 50 % du temps à 2 et 50 % à 1 donne une luminosité perçue de « 1,5 ».
+En jouant sur ce rapport, on obtient un continuum. Chaque cran matériel est
+découpé en 4, soit **13 niveaux perçus** au lieu de 4.
+
+Le clignotement doit être assez rapide pour être invisible. La durée d'un cycle
+se règle avec `-period` (défaut 15 ms) :
+
+```bash
+./kbdlight -period 10ms   # plus rapide si tu vois scintiller
+```
+
+Selon le contrôleur du clavier, un léger scintillement peut rester visible sur
+certains niveaux : c'est la limite d'un PWM piloté depuis l'espace utilisateur.
+
 ## Prérequis
 
 - Un portable ASUS avec `/sys/class/leds/asus::kbd_backlight` présent
@@ -40,12 +58,12 @@ go build -o kbdlight ./cmd/kbdlight
 
 Touches dans le programme :
 
-| Touche      | Effet                          |
-|-------------|--------------------------------|
-| `espace`    | allume / éteint (bascule)      |
-| `+` / `-`   | augmente / diminue le niveau   |
-| `0`–`3`     | règle directement le niveau    |
-| `q`         | quitte                         |
+| Touche      | Effet                                   |
+|-------------|-----------------------------------------|
+| `espace`    | allume / éteint (bascule)               |
+| `+` / `-`   | monte / descend d'un cran fin (PWM)     |
+| `0`–`3`     | règle directement un cran matériel plein|
+| `q`         | quitte                                  |
 
 ## Droits d'écriture
 
@@ -78,5 +96,6 @@ go vet ./...
 ```
 cmd/kbdlight/         programme interactif (terminal)
 internal/backlight/   package de lecture/écriture du LED sysfs
+internal/effect/      PWM logiciel (niveaux intermédiaires par clignotement)
 udev/                 règle udev pour l'usage sans sudo
 ```
