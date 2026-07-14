@@ -40,10 +40,10 @@ type Options struct {
 // NewMonitor prépare un Monitor à partir des options.
 func NewMonitor(o Options) *Monitor {
 	if o.Rate <= 0 {
-		o.Rate = 22050
+		o.Rate = 48000 // par défaut la fréquence usuelle du graphe PipeWire
 	}
 	if o.Block <= 0 {
-		o.Block = 512
+		o.Block = o.Rate / 50 // ~20 ms par bloc, quelle que soit la fréquence
 	}
 	if o.Gain <= 0 {
 		o.Gain = 1

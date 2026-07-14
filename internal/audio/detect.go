@@ -6,10 +6,28 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var nodeNameRe = regexp.MustCompile(`node\.name\s*=\s*"([^"]+)"`)
+var clockRateRe = regexp.MustCompile(`clock\.rate'\s+value:'(\d+)'`)
+
+// DefaultRate renvoie la fréquence d'échantillonnage du graphe PipeWire. Capter
+// à cette fréquence évite tout rééchantillonnage — important quand on se branche
+// sur le flux d'une application, sinon le conflit d'horloge peut dégrader (voire
+// « saturer ») le son joué. En cas d'échec, 48000 Hz (valeur quasi universelle).
+func DefaultRate() int {
+	out, err := pwCmd(context.Background(), "pw-metadata", "-n", "settings").Output()
+	if err == nil {
+		if m := clockRateRe.FindSubmatch(out); m != nil {
+			if r, err := strconv.Atoi(string(m[1])); err == nil && r > 0 {
+				return r
+			}
+		}
+	}
+	return 48000
+}
 
 // DefaultSink renvoie le node.name de la sortie audio par défaut (haut-parleurs
 // ou casque). On capte le monitor de ce node pour « entendre » ce que joue le

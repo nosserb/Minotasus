@@ -34,7 +34,7 @@ type Params struct {
 // NewAnalyzer construit un analyseur pour une fréquence donnée.
 func NewAnalyzer(p Params) *Analyzer {
 	if p.Rate <= 0 {
-		p.Rate = 22050
+		p.Rate = 48000
 	}
 	if p.Gain <= 0 {
 		p.Gain = 1

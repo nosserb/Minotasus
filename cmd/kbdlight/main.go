@@ -248,6 +248,7 @@ func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int
 		return err
 	}
 	opts.Gain = gain
+	opts.Rate = audio.DefaultRate() // capter à la fréquence du graphe (pas de rééchantillonnage)
 
 	mon := audio.NewMonitor(opts)
 	levels, stopAudio, err := mon.Start(ctx)
