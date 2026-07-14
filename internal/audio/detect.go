@@ -3,9 +3,9 @@
 package audio
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,7 +17,7 @@ var nodeNameRe = regexp.MustCompile(`node\.name\s*=\s*"([^"]+)"`)
 // ou casque). On capte le monitor de ce node pour « entendre » ce que joue le
 // PC.
 func DefaultSink() (string, error) {
-	out, err := exec.Command("wpctl", "inspect", "@DEFAULT_AUDIO_SINK@").Output()
+	out, err := pwCmd(context.Background(), "wpctl", "inspect", "@DEFAULT_AUDIO_SINK@").Output()
 	if err != nil {
 		return "", fmt.Errorf("wpctl inspect (PipeWire présent ?) : %w", err)
 	}
@@ -54,7 +54,7 @@ func (n pwNode) prop(key string) string {
 // renvoie l'identifiant de nœud à capter. La comparaison est insensible à la
 // casse sur application.name et node.name. Un flux « running » est préféré.
 func AppStream(match string) (target string, ok bool) {
-	out, err := exec.Command("pw-dump").Output()
+	out, err := pwCmd(context.Background(), "pw-dump").Output()
 	if err != nil {
 		return "", false
 	}

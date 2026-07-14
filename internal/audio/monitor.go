@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"os/exec"
 	"strconv"
+	"syscall"
 )
 
 // Monitor capte du son via pw-record et émet, bloc après bloc, un niveau [0,1]
@@ -60,7 +60,11 @@ func (m *Monitor) Start(ctx context.Context) (<-chan float64, func(), error) {
 		"--latency", "20ms",
 		"--raw", "-",
 	)
-	cmd := exec.CommandContext(ctx, "pw-record", args...)
+	cmd := pwCmd(ctx, "pw-record", args...)
+	// Propre groupe de processus : sous « sudo -u … pw-record », tuer le seul
+	// processus sudo laisserait pw-record orphelin. On tuera tout le groupe.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, err
@@ -73,7 +77,9 @@ func (m *Monitor) Start(ctx context.Context) (<-chan float64, func(), error) {
 	go m.pump(stdout, levels)
 
 	stop := func() {
-		_ = cmd.Process.Kill()
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // -pid = groupe
+		}
 		_ = cmd.Wait()
 	}
 	return levels, stop, nil
