@@ -22,6 +22,7 @@ type Setter interface {
 type PWM struct {
 	set    Setter
 	period time.Duration
+	pulses int // nombre d'impulsions par cycle (répartit le temps « allumé »)
 
 	mu    sync.Mutex
 	level float64 // niveau fractionnaire visé, dans [0, hardware max]
@@ -30,12 +31,18 @@ type PWM struct {
 	done chan struct{}
 }
 
-// New démarre un moteur PWM. period est la durée d'un cycle complet : plus elle
-// est courte, moins le clignotement est visible (~15-25 ms est un bon départ).
-func New(set Setter, period time.Duration) *PWM {
+// New démarre un moteur PWM. period est la durée d'un cycle complet ; pulses
+// découpe ce cycle en autant d'impulsions courtes, ce qui monte la fréquence
+// perçue et réduit le scintillement (au prix de plus d'écritures). pulses < 1
+// est ramené à 1.
+func New(set Setter, period time.Duration, pulses int) *PWM {
+	if pulses < 1 {
+		pulses = 1
+	}
 	p := &PWM{
 		set:    set,
 		period: period,
+		pulses: pulses,
 		stop:   make(chan struct{}),
 		done:   make(chan struct{}),
 	}
@@ -85,18 +92,23 @@ func (p *PWM) loop() {
 			continue
 		}
 
-		high := p.period * time.Duration(frac*1000) / 1000
-		low := p.period - high
-
-		_ = p.set.Set(lo + 1)
-		if p.sleep(high) {
-			_ = p.set.Set(round(level))
-			return
-		}
-		_ = p.set.Set(lo)
-		if p.sleep(low) {
-			_ = p.set.Set(round(level))
-			return
+		// Un cycle = p.pulses impulsions courtes. Chaque impulsion passe la
+		// fraction « frac » de son temps sur le cran haut. Répartir ainsi le
+		// temps allumé multiplie la fréquence perçue par p.pulses.
+		slot := p.period / time.Duration(p.pulses)
+		high := slot * time.Duration(frac*1000) / 1000
+		low := slot - high
+		for i := 0; i < p.pulses; i++ {
+			_ = p.set.Set(lo + 1)
+			if p.sleep(high) {
+				_ = p.set.Set(round(level))
+				return
+			}
+			_ = p.set.Set(lo)
+			if p.sleep(low) {
+				_ = p.set.Set(round(level))
+				return
+			}
 		}
 	}
 }

@@ -26,15 +26,27 @@ exemple 50 % du temps à 2 et 50 % à 1 donne une luminosité perçue de « 1,5 
 En jouant sur ce rapport, on obtient un continuum. Chaque cran matériel est
 découpé en 4, soit **13 niveaux perçus** au lieu de 4.
 
-Le clignotement doit être assez rapide pour être invisible. La durée d'un cycle
-se règle avec `-period` (défaut 15 ms) :
+Le clignotement doit être assez rapide pour être invisible. Deux leviers :
+
+- **`-period`** (défaut 15 ms) : durée d'un cycle. Plus court = fréquence plus
+  haute = moins de scintillement.
+- **`-pulses`** (défaut `0` = auto) : découpe chaque cycle en plusieurs
+  impulsions courtes au lieu d'un seul flash, ce qui monte encore la fréquence
+  perçue — c'est surtout ça qui règle le scintillement des niveaux sombres.
+
+En mode auto, le programme **mesure la latence d'écriture réelle** de ton
+clavier au démarrage et en déduit combien d'impulsions il peut faire sans
+saturer le contrôleur (l'affichage indique la valeur retenue). Tu peux forcer :
 
 ```bash
-./kbdlight -period 10ms   # plus rapide si tu vois scintiller
+./kbdlight -pulses 6            # plus d'impulsions si ça scintille encore
+./kbdlight -period 10ms         # cycle plus court
+./kbdlight -pulses 1            # revenir à un seul flash par cycle
 ```
 
-Selon le contrôleur du clavier, un léger scintillement peut rester visible sur
-certains niveaux : c'est la limite d'un PWM piloté depuis l'espace utilisateur.
+Selon le contrôleur du clavier, un léger scintillement peut rester sur certains
+niveaux : c'est la limite d'un PWM piloté depuis l'espace utilisateur (chaque
+écriture passe par l'ACPI/WMI, ce qui borne la fréquence atteignable).
 
 ## Prérequis
 

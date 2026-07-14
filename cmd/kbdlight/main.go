@@ -34,6 +34,7 @@ const subdivisions = 4
 
 func main() {
 	period := flag.Duration("period", 15*time.Millisecond, "durée d'un cycle PWM (plus court = moins de scintillement)")
+	pulses := flag.Int("pulses", 0, "impulsions par cycle (0 = auto selon la latence du clavier)")
 	flag.Parse()
 
 	c := backlight.New()
@@ -58,21 +59,64 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(c, max, *period); err != nil {
+	// Choisit le nombre d'impulsions : soit imposé, soit déduit de la latence
+	// d'écriture réelle du clavier pour ne pas saturer son contrôleur.
+	n := *pulses
+	if n <= 0 {
+		lat := measureWriteLatency(c, max)
+		n = autoPulses(*period, lat)
+		fmt.Printf("Latence d'écriture ~%s → %d impulsion(s)/cycle (règle avec -pulses).\n", lat.Round(time.Microsecond), n)
+	}
+
+	if err := run(c, max, *period, n); err != nil {
 		fmt.Fprintln(os.Stderr, "Erreur :", err)
 		os.Exit(1)
 	}
 }
 
+// measureWriteLatency estime le temps d'une écriture sur le rétroéclairage en
+// alternant deux crans (l'EC ignore souvent une réécriture identique). Restaure
+// le niveau de départ après mesure.
+func measureWriteLatency(c *backlight.Controller, max int) time.Duration {
+	cur, _ := c.Get()
+	a, b := cur, cur
+	if cur > 0 {
+		b = cur - 1
+	} else if max > 0 {
+		b = cur + 1
+	}
+	const n = 8
+	start := time.Now()
+	for i := 0; i < n; i++ {
+		_ = c.Set(a)
+		_ = c.Set(b)
+	}
+	elapsed := time.Since(start)
+	_ = c.Set(cur)
+	return elapsed / (2 * n)
+}
+
+// autoPulses déduit un nombre d'impulsions tenant dans le cycle : chaque
+// impulsion coûte deux écritures (allumé puis éteint), on garde donc un créneau
+// d'au moins ~2× la latence, avec une marge.
+func autoPulses(period, latency time.Duration) int {
+	if latency <= 0 {
+		return 4
+	}
+	minSlot := 2 * latency * 3 / 2 // 2 écritures + 50 % de marge
+	n := int(period / minSlot)
+	return clamp(n, 1, 8)
+}
+
 // run met le terminal en mode brut, pilote le PWM et réagit aux touches
 // jusqu'à ce que l'utilisateur quitte.
-func run(c *backlight.Controller, max int, period time.Duration) error {
+func run(c *backlight.Controller, max int, period time.Duration, pulses int) error {
 	restore, err := rawMode()
 	if err != nil {
 		return fmt.Errorf("passage en mode brut : %w", err)
 	}
 
-	pwm := effect.New(c, period)
+	pwm := effect.New(c, period, pulses)
 
 	// Nettoyage commun (terminal + PWM), idempotent.
 	var cleaned bool

@@ -31,7 +31,7 @@ func (r *recorder) seen() map[int]int {
 
 func TestIntegerLevelDoesNotBlink(t *testing.T) {
 	r := &recorder{}
-	p := New(r, 5*time.Millisecond)
+	p := New(r, 5*time.Millisecond, 1)
 	p.SetLevel(2)
 	time.Sleep(30 * time.Millisecond)
 	p.Stop()
@@ -45,7 +45,7 @@ func TestIntegerLevelDoesNotBlink(t *testing.T) {
 
 func TestFractionalLevelBlinksBetweenCrans(t *testing.T) {
 	r := &recorder{}
-	p := New(r, 5*time.Millisecond)
+	p := New(r, 5*time.Millisecond, 1)
 	p.SetLevel(1.5) // doit alterner entre 1 et 2
 	time.Sleep(40 * time.Millisecond)
 	p.Stop()
@@ -61,9 +61,37 @@ func TestFractionalLevelBlinksBetweenCrans(t *testing.T) {
 	}
 }
 
+// transitions compte les changements de valeur consécutifs.
+func (r *recorder) transitions() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for i := 1; i < len(r.vals); i++ {
+		if r.vals[i] != r.vals[i-1] {
+			n++
+		}
+	}
+	return n
+}
+
+func TestMorePulsesMoreTransitions(t *testing.T) {
+	run := func(pulses int) int {
+		r := &recorder{}
+		p := New(r, 20*time.Millisecond, pulses)
+		p.SetLevel(1.5)
+		time.Sleep(80 * time.Millisecond)
+		p.Stop()
+		return r.transitions()
+	}
+	one, four := run(1), run(4)
+	if four <= one {
+		t.Fatalf("4 impulsions/cycle (%d transitions) devrait dépasser 1 (%d)", four, one)
+	}
+}
+
 func TestStopFreezesOnNearestCran(t *testing.T) {
 	r := &recorder{}
-	p := New(r, 5*time.Millisecond)
+	p := New(r, 5*time.Millisecond, 1)
 	p.SetLevel(1.8)
 	time.Sleep(20 * time.Millisecond)
 	p.Stop()
