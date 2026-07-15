@@ -137,6 +137,33 @@ Liste les applications qui jouent avec `wpctl status` (section *Streams*) et les
 sorties avec la section *Sinks*. Prérequis : **PipeWire** avec `pw-record`,
 `pw-dump` et `wpctl` (paquets `pipewire-utils` / `wireplumber`).
 
+## Mode oscilloscope 〜
+
+Affiche la **forme d'onde** du son qui sort du PC, en direct, dans le terminal —
+et le rétroéclairage suit le rythme en même temps. **Aucun fichier à fournir** :
+le programme capte la sortie audio et **s'adapte automatiquement à sa fréquence**
+(celle du graphe PipeWire), donc pas de rééchantillonnage ni de son dégradé.
+
+```bash
+sudo ./kbdlight -scope
+```
+
+Comme en mode musique, il suit **Spotify** par défaut et se rabat sur toute la
+sortie sinon. `q` (ou Ctrl-C) pour quitter.
+
+### Options
+
+```bash
+sudo ./kbdlight -scope -width 160 -height 40   # plus grand
+sudo ./kbdlight -scope -fps 60                 # plus fluide
+sudo ./kbdlight -scope -app ""                 # toute la sortie (au lieu de Spotify)
+sudo ./kbdlight -scope -sink NOM               # forcer une sortie précise (node.name)
+sudo ./kbdlight -scope -gain 1.5               # lumière plus sensible
+```
+
+Chaque image correspond à un bloc capté : la cadence (`-fps`) fixe aussi la durée
+de signal montrée à l'écran. Mêmes prérequis PipeWire que le mode musique.
+
 ## Mode match de foot ⚽
 
 Suit un match en direct : le clavier « respire » comme un **battement de cœur**
@@ -205,7 +232,8 @@ go vet ./...
 cmd/kbdlight/         programme interactif (terminal)
 internal/backlight/   package de lecture/écriture du LED sysfs
 internal/effect/      PWM logiciel (niveaux intermédiaires par clignotement)
-internal/audio/       capture du son (PipeWire) + analyse rythmique
+internal/audio/       capture du son (PipeWire) + analyse rythmique + forme d'onde
+internal/scope/       oscilloscope ASCII de la forme d'onde captée
 internal/match/       suivi de match en direct (TheSportsDB) + tension
 internal/show/        animations de match (battement de cœur, explosion de but)
 udev/                 règle udev pour l'usage sans sudo
