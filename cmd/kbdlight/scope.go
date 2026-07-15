@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,10 +16,26 @@ import (
 	"minotasus/internal/scope"
 )
 
-// runScope capte le son qui sort du PC — à la fréquence de sortie, sans fichier
-// à fournir — et en dessine la forme d'onde (oscilloscope ASCII) tout en faisant
-// suivre le rétroéclairage du clavier. La touche q (ou Ctrl-C) quitte.
-func runScope(c *backlight.Controller, max int, period time.Duration, pulses int, app, sink string, gain float64, width, height, fps int) error {
+// scopeColors : la forme d'onde change de couleur de temps en temps en tournant
+// sur cette palette (codes ANSI, teintes vives).
+var scopeColors = []string{
+	"\033[96m", // cyan
+	"\033[92m", // vert
+	"\033[93m", // jaune
+	"\033[95m", // magenta
+	"\033[91m", // rouge
+	"\033[94m", // bleu
+}
+
+// scopeColorEvery : durée pendant laquelle une couleur reste affichée avant de
+// passer à la suivante.
+const scopeColorEvery = 4 * time.Second
+
+// runMusic capte le son qui sort du PC — à la fréquence de sortie, sans fichier
+// à fournir — et en dessine la forme d'onde en plein écran (oscilloscope ASCII
+// qui change de couleur de temps en temps), tout en faisant suivre le
+// rétroéclairage du clavier. La touche q (ou Ctrl-C) quitte.
+func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int, app, sink string, gain float64, width, height, fps int) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -42,8 +59,8 @@ func runScope(c *backlight.Controller, max int, period time.Duration, pulses int
 	}
 	defer stopAudio()
 
-	// Comme en mode musique : une seule impulsion PWM suffit (l'image bouge trop
-	// vite pour percevoir le grain), ce qui limite les écritures au contrôleur.
+	// Comme avant : une seule impulsion PWM suffit (l'image bouge trop vite pour
+	// percevoir le grain), ce qui limite les écritures au contrôleur.
 	if pulses > musicMaxPulses {
 		pulses = musicMaxPulses
 	}
@@ -81,13 +98,14 @@ func runScope(c *backlight.Controller, max int, period time.Duration, pulses int
 		if restore != nil {
 			restore()
 		}
-		fmt.Print("\033[H\033[2J") // laisse un écran propre en sortant
+		fmt.Print("\033[0m\033[H\033[2J") // couleur par défaut + écran propre en sortant
 	}
 	defer cleanup()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
+	start := time.Now()
 	for {
 		select {
 		case <-sig:
@@ -101,8 +119,47 @@ func runScope(c *backlight.Controller, max int, period time.Duration, pulses int
 				return errors.New("flux audio interrompu (pw-record arrêté ?)")
 			}
 			pwm.SetLevel(an.Process(block) * float64(max))
-			fmt.Print(scope.Frame(block, width, height))
-			fmt.Printf("  oscilloscope — %s @ %d Hz — q pour quitter", desc, opts.Rate)
+
+			// Plein écran : on prend toute la taille du terminal (moins une ligne
+			// pour l'état), recalculée à chaque image au cas où on redimensionne.
+			w, h := scopeSize(width, height)
+			color := scopeColors[int(time.Since(start)/scopeColorEvery)%len(scopeColors)]
+			fmt.Print(color, scope.Frame(block, w, h))
+			fmt.Printf("\033[0m  ♪ %s @ %d Hz — q pour quitter", desc, opts.Rate)
 		}
 	}
+}
+
+// scopeSize choisit les dimensions de l'oscilloscope : les valeurs > 0 forcent
+// une taille (flags -width/-height) ; sinon on remplit tout le terminal (une
+// ligne réservée à l'état en bas), avec un repli si la taille est illisible.
+func scopeSize(width, height int) (w, h int) {
+	tw, th := termSize()
+	w, h = width, height
+	if w <= 0 {
+		w = tw
+	}
+	if h <= 0 {
+		h = th - 1 // garde une ligne pour l'état
+	}
+	if w <= 0 {
+		w = 100
+	}
+	if h <= 0 {
+		h = 28
+	}
+	return w, h
+}
+
+// termSize renvoie la taille du terminal (colonnes, lignes) via « stty size »,
+// ou (0, 0) si elle n'est pas lisible.
+func termSize() (cols, rows int) {
+	out, err := stty("size") // format "lignes colonnes"
+	if err != nil {
+		return 0, 0
+	}
+	if _, err := fmt.Sscan(strings.TrimSpace(out), &rows, &cols); err != nil {
+		return 0, 0
+	}
+	return cols, rows
 }

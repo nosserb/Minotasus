@@ -14,7 +14,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -42,14 +41,13 @@ const musicMaxPulses = 1
 func main() {
 	period := flag.Duration("period", 15*time.Millisecond, "durée d'un cycle PWM (plus court = moins de scintillement)")
 	pulses := flag.Int("pulses", 0, "impulsions par cycle (0 = auto selon la latence du clavier)")
-	music := flag.Bool("music", false, "fait pulser la lumière au rythme de la musique jouée sur le PC")
-	scopeMode := flag.Bool("scope", false, "oscilloscope ASCII de la sortie audio (la lumière suit aussi)")
-	width := flag.Int("width", 100, "largeur de l'oscilloscope en colonnes (mode -scope)")
-	height := flag.Int("height", 28, "hauteur de l'oscilloscope en lignes (mode -scope)")
-	fps := flag.Int("fps", 30, "images par seconde de l'oscilloscope (mode -scope)")
-	app := flag.String("app", "spotify", "application à suivre en mode musique/scope (vide = toute la sortie)")
+	music := flag.Bool("music", false, "oscilloscope plein écran de la musique jouée sur le PC (la lumière suit)")
+	width := flag.Int("width", 0, "largeur de l'oscilloscope en colonnes (0 = plein écran)")
+	height := flag.Int("height", 0, "hauteur de l'oscilloscope en lignes (0 = plein écran)")
+	fps := flag.Int("fps", 30, "images par seconde de l'oscilloscope")
+	app := flag.String("app", "spotify", "application à suivre en mode musique (vide = toute la sortie)")
 	sink := flag.String("sink", "", "node.name d'une sortie audio à écouter (force la capture de toute la sortie)")
-	gain := flag.Float64("gain", 1, "sensibilité du mode musique/scope")
+	gain := flag.Float64("gain", 1, "sensibilité du mode musique")
 	matchMode := flag.Bool("match", false, "suit un match de foot en direct (tension + explosion sur but)")
 	team := flag.String("team", "France", "équipe à suivre et à célébrer en mode match")
 	event := flag.String("event", "", "idEvent TheSportsDB (sinon déduit de -team)")
@@ -94,9 +92,7 @@ func main() {
 	case *matchMode:
 		runErr = runMatch(c, max, *period, n, *team, *event, *poll, *demo)
 	case *music:
-		runErr = runMusic(c, max, *period, n, *app, *sink, *gain)
-	case *scopeMode:
-		runErr = runScope(c, max, *period, n, *app, *sink, *gain, *width, *height, *fps)
+		runErr = runMusic(c, max, *period, n, *app, *sink, *gain, *width, *height, *fps)
 	default:
 		runErr = run(c, max, *period, n)
 	}
@@ -249,98 +245,6 @@ func resolveTarget(app, sink string) (opts audio.Options, desc string, err error
 		return audio.Options{Sink: s}, app + " introuvable → toute la sortie", nil
 	}
 	return audio.Options{Sink: s}, "sortie par défaut", nil
-}
-
-// runMusic capte le son du PC et fait pulser le rétroéclairage sur le rythme.
-// La touche q (ou Ctrl-C) quitte.
-func runMusic(c *backlight.Controller, max int, period time.Duration, pulses int, app, sink string, gain float64) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	opts, desc, err := resolveTarget(app, sink)
-	if err != nil {
-		return err
-	}
-	opts.Gain = gain
-	opts.Rate = audio.DefaultRate() // capter à la fréquence du graphe (pas de rééchantillonnage)
-
-	mon := audio.NewMonitor(opts)
-	levels, stopAudio, err := mon.Start(ctx)
-	if err != nil {
-		return fmt.Errorf("capture audio : %w", err)
-	}
-	defer stopAudio()
-
-	// En musique, l'image bouge trop vite pour qu'on perçoive le grain du PWM :
-	// on plafonne les impulsions pour limiter les écritures au contrôleur.
-	if pulses > musicMaxPulses {
-		pulses = musicMaxPulses
-	}
-	pwm := effect.New(c, period, pulses)
-
-	// Lecture clavier en mode brut, dans une goroutine, pour pouvoir quitter.
-	restore, err := rawMode()
-	if err == nil {
-		defer restore()
-		go func() {
-			buf := make([]byte, 4)
-			for {
-				n, e := os.Stdin.Read(buf)
-				if e != nil || n == 0 {
-					return
-				}
-				if b := buf[0]; b == 'q' || b == 'Q' || b == 3 {
-					cancel()
-					return
-				}
-			}
-		}()
-	}
-
-	var cleaned bool
-	cleanup := func() {
-		if cleaned {
-			return
-		}
-		cleaned = true
-		pwm.Stop()
-		if restore != nil {
-			restore()
-		}
-	}
-	defer cleanup()
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-
-	fmt.Printf("Mode musique — source : %s. La lumière suit le rythme. q pour quitter.\r\n", desc)
-
-	for {
-		select {
-		case <-sig:
-			cancel()
-		case <-ctx.Done():
-			cleanup()
-			fmt.Print("\r\n")
-			return nil
-		case lvl, ok := <-levels:
-			if !ok {
-				cleanup()
-				fmt.Print("\r\n")
-				return errors.New("flux audio interrompu (pw-record arrêté ?)")
-			}
-			pwm.SetLevel(lvl * float64(max))
-			drawVU(lvl)
-		}
-	}
-}
-
-// drawVU affiche un vumètre du niveau audio courant.
-func drawVU(level float64) {
-	const width = 24
-	on := int(level*float64(width) + 0.5)
-	bar := strings.Repeat("█", on) + strings.Repeat("·", width-on)
-	fmt.Printf("\r\033[K  ♪ [%s] %3.0f%% ", bar, level*100)
 }
 
 // draw réaffiche une jauge d'état sur la ligne courante.
