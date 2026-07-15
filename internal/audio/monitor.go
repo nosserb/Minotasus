@@ -55,6 +55,34 @@ func NewMonitor(o Options) *Monitor {
 // quand ctx est annulé ou que la capture s'arrête. La fonction renvoyée doit
 // être appelée pour libérer le processus pw-record.
 func (m *Monitor) Start(ctx context.Context) (<-chan float64, func(), error) {
+	stdout, stop, err := m.spawn(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	levels := make(chan float64, 8)
+	go m.pump(stdout, levels)
+	return levels, stop, nil
+}
+
+// Frames lance la capture et renvoie, bloc après bloc, la forme d'onde brute
+// captée (mono, [-1,1]) — de quoi dessiner un oscilloscope. C'est le signal
+// lui-même qui est émis, pas seulement son niveau. Comme Start, la capture se
+// fait à la fréquence de sortie configurée (m.rate) et la fonction renvoyée
+// libère pw-record.
+func (m *Monitor) Frames(ctx context.Context) (<-chan []float64, func(), error) {
+	stdout, stop, err := m.spawn(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	frames := make(chan []float64, 4)
+	go m.pumpFrames(stdout, frames)
+	return frames, stop, nil
+}
+
+// spawn démarre pw-record (capture du monitor de sortie, ou des ports d'une
+// application) et renvoie son flux PCM brut ainsi qu'une fonction d'arrêt. C'est
+// la plomberie commune à Start (niveaux) et Frames (forme d'onde).
+func (m *Monitor) spawn(ctx context.Context) (io.Reader, func(), error) {
 	// Nom unique pour retrouver notre nœud de capture dans le graphe PipeWire.
 	capName := fmt.Sprintf("kbdlight_capture_%d", os.Getpid())
 
@@ -93,16 +121,13 @@ func (m *Monitor) Start(ctx context.Context) (<-chan float64, func(), error) {
 		go linkAppPorts(ctx, capName, m.appPorts)
 	}
 
-	levels := make(chan float64, 8)
-	go m.pump(stdout, levels)
-
 	stop := func() {
 		if cmd.Process != nil {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // -pid = groupe
 		}
 		_ = cmd.Wait()
 	}
-	return levels, stop, nil
+	return stdout, stop, nil
 }
 
 // linkAppPorts attend que le port d'entrée de notre capture apparaisse, puis y
@@ -159,6 +184,29 @@ func (m *Monitor) pump(r io.Reader, out chan<- float64) {
 		select {
 		case out <- level:
 		default: // consommateur en retard : on saute ce niveau
+		}
+	}
+}
+
+// pumpFrames lit le PCM s16 mono, le découpe en blocs et pousse chaque bloc de
+// forme d'onde (mono, [-1,1]). Chaque bloc est une tranche neuve : le
+// consommateur peut la garder le temps de la dessiner.
+func (m *Monitor) pumpFrames(r io.Reader, out chan<- []float64) {
+	defer close(out)
+
+	raw := make([]byte, m.block*2) // 2 octets par échantillon s16
+	for {
+		if _, err := io.ReadFull(r, raw); err != nil {
+			return
+		}
+		buf := make([]float64, m.block)
+		for i := 0; i < m.block; i++ {
+			s := int16(binary.LittleEndian.Uint16(raw[2*i:]))
+			buf[i] = float64(s) / 32768.0
+		}
+		select {
+		case out <- buf:
+		default: // consommateur en retard : on saute ce bloc
 		}
 	}
 }
