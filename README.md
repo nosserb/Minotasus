@@ -78,15 +78,21 @@ Touches dans le programme :
 | `0`–`3`     | règle directement un cran matériel plein|
 | `q`         | quitte                                  |
 
-## Mode musique — la lumière pulse au rythme 🎵
+## Mode musique — oscilloscope + la lumière pulse au rythme 🎵
 
 ```bash
 sudo ./kbdlight -music
 ```
 
-Par défaut, le clavier suit **automatiquement le flux Spotify** : lance Spotify,
-mets un morceau, et la lumière pulse au rythme. `q` (ou Ctrl-C) pour quitter. Un
-vumètre affiche le niveau capté en temps réel.
+Le mode musique affiche un **oscilloscope en plein écran** : la **forme d'onde**
+du son qui sort du PC défile dans le terminal (et **change de couleur de temps en
+temps**), pendant que le rétroéclairage du clavier pulse au rythme. **Aucun
+fichier à fournir** : le programme capte la sortie audio et **s'adapte
+automatiquement à sa fréquence** (celle du graphe PipeWire), donc pas de
+rééchantillonnage ni de son dégradé.
+
+Par défaut, il suit **automatiquement le flux Spotify** : lance Spotify, mets un
+morceau, et ça part. `q` (ou Ctrl-C) pour quitter.
 
 Si Spotify n'est pas lancé, le programme se rabat sur **toute la sortie audio**.
 
@@ -116,7 +122,9 @@ Le flux capté est ensuite analysé :
    puis redescend en douceur.
 
 Le niveau `[0,1]` obtenu pilote directement le PWM du clavier (luminosité
-continue grâce au clignotement, cf. plus haut).
+continue grâce au clignotement, cf. plus haut). En parallèle, la forme d'onde
+brute du même bloc est envoyée à l'oscilloscope, qui remplit tout le terminal
+(taille recalculée à chaque image) — on peut la figer avec `-width`/`-height`.
 
 Pour **ne pas surcharger le contrôleur du clavier** (chaque écriture passe par
 l'ACPI/WMI, coûteux), le mode musique limite au maximum les écritures : niveau
@@ -127,42 +135,19 @@ calme, et ~4× moins qu'avant dans les passages les plus chargés.
 ### Options
 
 ```bash
-sudo ./kbdlight -music -gain 1.5     # plus sensible
-sudo ./kbdlight -music -app vlc      # suivre une autre application
-sudo ./kbdlight -music -app ""       # toute la sortie (au lieu de Spotify)
-sudo ./kbdlight -music -sink NOM     # forcer une sortie précise (node.name)
-```
-
-Liste les applications qui jouent avec `wpctl status` (section *Streams*) et les
-sorties avec la section *Sinks*. Prérequis : **PipeWire** avec `pw-record`,
-`pw-dump` et `wpctl` (paquets `pipewire-utils` / `wireplumber`).
-
-## Mode oscilloscope 〜
-
-Affiche la **forme d'onde** du son qui sort du PC, en direct, dans le terminal —
-et le rétroéclairage suit le rythme en même temps. **Aucun fichier à fournir** :
-le programme capte la sortie audio et **s'adapte automatiquement à sa fréquence**
-(celle du graphe PipeWire), donc pas de rééchantillonnage ni de son dégradé.
-
-```bash
-sudo ./kbdlight -scope
-```
-
-Comme en mode musique, il suit **Spotify** par défaut et se rabat sur toute la
-sortie sinon. `q` (ou Ctrl-C) pour quitter.
-
-### Options
-
-```bash
-sudo ./kbdlight -scope -width 160 -height 40   # plus grand
-sudo ./kbdlight -scope -fps 60                 # plus fluide
-sudo ./kbdlight -scope -app ""                 # toute la sortie (au lieu de Spotify)
-sudo ./kbdlight -scope -sink NOM               # forcer une sortie précise (node.name)
-sudo ./kbdlight -scope -gain 1.5               # lumière plus sensible
+sudo ./kbdlight -music -gain 1.5           # lumière plus sensible
+sudo ./kbdlight -music -fps 60             # oscilloscope plus fluide
+sudo ./kbdlight -music -width 160 -height 40  # taille figée (au lieu du plein écran)
+sudo ./kbdlight -music -app vlc            # suivre une autre application
+sudo ./kbdlight -music -app ""             # toute la sortie (au lieu de Spotify)
+sudo ./kbdlight -music -sink NOM           # forcer une sortie précise (node.name)
 ```
 
 Chaque image correspond à un bloc capté : la cadence (`-fps`) fixe aussi la durée
-de signal montrée à l'écran. Mêmes prérequis PipeWire que le mode musique.
+de signal montrée à l'écran. Liste les applications qui jouent avec `wpctl status`
+(section *Streams*) et les sorties avec la section *Sinks*. Prérequis :
+**PipeWire** avec `pw-record`, `pw-dump` et `wpctl` (paquets `pipewire-utils` /
+`wireplumber`).
 
 ## Mode match de foot ⚽
 
